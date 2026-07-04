@@ -18,7 +18,7 @@ def cargar_documentos(carpeta_docs: str) -> list:
 def dividir_documentos(documentos: list) -> list:
     """Divide los documentos en chunks para el vector store"""
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,
+        chunk_size=2000,
         chunk_overlap=200,
         length_function=len
     )

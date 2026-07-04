@@ -1,5 +1,6 @@
 # rag_agent.py - Lógica del agente RAG con LangChain y Gemini
 import os
+import time
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import FAISS
@@ -25,16 +26,46 @@ Respuesta:"""
 
 def crear_agente(carpeta_docs: str):
     """Crea el agente RAG cargando los documentos y construyendo el vector store"""
-    print("Cargando documentos...")
-    documentos = cargar_documentos(carpeta_docs)
-    chunks = dividir_documentos(documentos)
 
-    print("Creando embeddings y vector store...")
+    ruta_faiss = os.path.join(os.path.dirname(__file__), "..", "vector_store")
+
     embeddings = GoogleGenerativeAIEmbeddings(
-        model="models/embedding-001",
+        model="models/gemini-embedding-001",
         google_api_key=GOOGLE_API_KEY
     )
-    vector_store = FAISS.from_documents(chunks, embeddings)
+
+    if os.path.exists(ruta_faiss):
+        print("Cargando vector store desde disco...")
+        vector_store = FAISS.load_local(
+            ruta_faiss,
+            embeddings,
+            allow_dangerous_deserialization=True
+        )
+    else:
+        print("Cargando documentos...")
+        documentos = cargar_documentos(carpeta_docs)
+        chunks = dividir_documentos(documentos)
+        print(f"Creando embeddings para {len(chunks)} chunks (solo la primera vez)...")
+
+        textos = [chunk.page_content for chunk in chunks]
+        metadatos = [chunk.metadata for chunk in chunks]
+
+        todos_embeddings = []
+        batch_size = 10
+        for i in range(0, len(textos), batch_size):
+            batch = textos[i:i+batch_size]
+            batch_emb = embeddings.embed_documents(batch)
+            todos_embeddings.extend(batch_emb)
+            print(f"Procesados {min(i+batch_size, len(textos))}/{len(textos)} chunks...")
+            time.sleep(6)
+
+        vector_store = FAISS.from_embeddings(
+            list(zip(textos, todos_embeddings)),
+            embeddings,
+            metadatas=metadatos
+        )
+        vector_store.save_local(ruta_faiss)
+        print("Vector store guardado en disco.")
 
     print("Configurando el agente...")
     llm = ChatGoogleGenerativeAI(
