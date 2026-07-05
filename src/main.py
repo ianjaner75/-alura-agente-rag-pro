@@ -108,6 +108,14 @@ if st.session_state.agente is not None:
 
         with st.chat_message("assistant"):
             with st.spinner("Buscando respuesta..."):
-                respuesta = hacer_pregunta(st.session_state.agente, pregunta)
+                resultado = st.session_state.agente.invoke({"query": pregunta})
+                respuesta = resultado["result"]
+                fuentes = resultado.get("source_documents", [])
             st.write(respuesta)
+            if fuentes:
+                with st.expander("📄 Ver fuentes"):
+                    for i, doc in enumerate(fuentes):
+                        archivo = os.path.basename(doc.metadata.get("source", "Desconocido"))
+                        pagina = doc.metadata.get("page", "?")
+                        st.caption(f"**Fuente {i+1}:** {archivo} — Página {pagina}")
         st.session_state.historial.append({"rol": "assistant", "contenido": respuesta})
