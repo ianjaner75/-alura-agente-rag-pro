@@ -2,7 +2,8 @@
 import os
 import time
 from dotenv import load_dotenv
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_groq import ChatGroq
 from langchain_community.vectorstores import FAISS
 from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
@@ -10,7 +11,6 @@ from document_loader import cargar_documentos, dividir_documentos
 
 load_dotenv()
 
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 PROMPT_TEMPLATE = """
 Eres un asistente inteligente de Santos Pegasus Soluciones.
@@ -29,9 +29,8 @@ def crear_agente(carpeta_docs: str):
 
     ruta_faiss = os.path.join(os.path.dirname(__file__), "..", "vector_store")
 
-    embeddings = GoogleGenerativeAIEmbeddings(
-        model="models/gemini-embedding-001",
-        google_api_key=GOOGLE_API_KEY
+    embeddings = HuggingFaceEmbeddings(
+        model_name="sentence-transformers/all-MiniLM-L6-v2"
     )
 
     if os.path.exists(ruta_faiss):
@@ -52,12 +51,13 @@ def crear_agente(carpeta_docs: str):
 
         todos_embeddings = []
         batch_size = 10
+        
+        
         for i in range(0, len(textos), batch_size):
             batch = textos[i:i+batch_size]
             batch_emb = embeddings.embed_documents(batch)
             todos_embeddings.extend(batch_emb)
             print(f"Procesados {min(i+batch_size, len(textos))}/{len(textos)} chunks...")
-            time.sleep(6)
 
         vector_store = FAISS.from_embeddings(
             list(zip(textos, todos_embeddings)),
@@ -68,9 +68,9 @@ def crear_agente(carpeta_docs: str):
         print("Vector store guardado en disco.")
 
     print("Configurando el agente...")
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-2.0-flash",
-        google_api_key=GOOGLE_API_KEY,
+    llm = ChatGroq(
+        model="llama-3.1-8b-instant",
+        groq_api_key=os.getenv("GROQ_API_KEY"),
         temperature=0.3
     )
 
@@ -79,10 +79,11 @@ def crear_agente(carpeta_docs: str):
         input_variables=["context", "question"]
     )
 
+    # Reducimos k de 4 a 2 para enviar menos texto y consumir menos tokens por consulta
     agente = RetrievalQA.from_chain_type(
         llm=llm,
         chain_type="stuff",
-        retriever=vector_store.as_retriever(search_kwargs={"k": 4}),
+        retriever=vector_store.as_retriever(search_kwargs={"k": 2}),
         chain_type_kwargs={"prompt": prompt},
         return_source_documents=True
     )
@@ -91,6 +92,11 @@ def crear_agente(carpeta_docs: str):
     return agente
 
 def hacer_pregunta(agente, pregunta: str) -> str:
-    """Hace una pregunta al agente y retorna la respuesta"""
-    resultado = agente.invoke({"query": pregunta})
-    return resultado["result"]
+    """Hace una pregunta al agente"""
+    try:
+        resultado = agente.invoke({"query": pregunta})
+        return resultado["result"]
+    except Exception as e:
+        print(f"\n❌ Error: {e}")
+        raise e
+
