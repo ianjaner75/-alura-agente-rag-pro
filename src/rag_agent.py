@@ -100,3 +100,64 @@ def hacer_pregunta(agente, pregunta: str) -> str:
         print(f"\n❌ Error: {e}")
         raise e
 
+def crear_agente_personalizado(carpeta_docs: str):
+    """Crea un agente RAG temporal con documentos del usuario"""
+    
+    print("Cargando documentos personalizados...")
+    documentos = cargar_documentos(carpeta_docs)
+    chunks = dividir_documentos(documentos)
+    print(f"Creando embeddings para {len(chunks)} chunks...")
+
+    embeddings = HuggingFaceEmbeddings(
+        model_name="sentence-transformers/all-MiniLM-L6-v2"
+    )
+
+    textos = [chunk.page_content for chunk in chunks]
+    metadatos = [chunk.metadata for chunk in chunks]
+
+    todos_embeddings = []
+    batch_size = 10
+
+    for i in range(0, len(textos), batch_size):
+        batch = textos[i:i+batch_size]
+        batch_emb = embeddings.embed_documents(batch)
+        todos_embeddings.extend(batch_emb)
+        print(f"Procesados {min(i+batch_size, len(textos))}/{len(textos)} chunks...")
+
+    vector_store = FAISS.from_embeddings(
+        list(zip(textos, todos_embeddings)),
+        embeddings,
+        metadatas=metadatos
+    )
+
+    print("Configurando agente personalizado...")
+    llm = ChatGroq(
+        model="llama-3.1-8b-instant",
+        groq_api_key=os.getenv("GROQ_API_KEY"),
+        temperature=0.3
+    )
+
+    prompt_personalizado = PromptTemplate(
+        template="""Eres un asistente inteligente.
+Usa únicamente la siguiente información para responder la pregunta.
+Si no encuentras la respuesta en el contexto, di claramente que no tienes esa información.
+
+Contexto:
+{context}
+
+Pregunta: {question}
+
+Respuesta:""",
+        input_variables=["context", "question"]
+    )
+
+    agente = RetrievalQA.from_chain_type(
+        llm=llm,
+        chain_type="stuff",
+        retriever=vector_store.as_retriever(search_kwargs={"k": 4}),
+        chain_type_kwargs={"prompt": prompt_personalizado},
+        return_source_documents=True
+    )
+
+    print("Agente personalizado listo.")
+    return agente
