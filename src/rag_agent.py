@@ -83,7 +83,7 @@ def crear_agente(carpeta_docs: str):
     agente = RetrievalQA.from_chain_type(
         llm=llm,
         chain_type="stuff",
-        retriever=vector_store.as_retriever(search_kwargs={"k": 2}),
+        retriever=vector_store.as_retriever(search_kwargs={"k": 4}),
         chain_type_kwargs={"prompt": prompt},
         return_source_documents=True
     )
