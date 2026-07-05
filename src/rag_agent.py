@@ -1,38 +1,51 @@
-# rag_agent.py - Lógica del agente RAG con LangChain y Gemini
+# rag_agent.py - Lógica del agente RAG con LangChain y Groq
 import os
-import time
 from dotenv import load_dotenv
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_groq import ChatGroq
 from langchain_community.vectorstores import FAISS
-from langchain.chains import RetrievalQA
-from langchain.prompts import PromptTemplate
+from langchain.chains import ConversationalRetrievalChain
+from langchain.memory import ConversationBufferWindowMemory
 from document_loader import cargar_documentos, dividir_documentos
 
 load_dotenv()
 
+def crear_embeddings():
+    return HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
-PROMPT_TEMPLATE = """
-Eres un asistente inteligente de Santos Pegasus Soluciones.
-Usa únicamente la siguiente información para responder la pregunta.
-Si no encuentras la respuesta en el contexto, di claramente que no tienes esa información.
-
-Contexto:
-{context}
-
-Pregunta: {question}
-
-Respuesta:"""
-
-def crear_agente(carpeta_docs: str):
-    """Crea el agente RAG cargando los documentos y construyendo el vector store"""
-
-    ruta_faiss = os.path.join(os.path.dirname(__file__), "..", "vector_store")
-
-    embeddings = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2"
+def crear_vector_store(chunks, embeddings):
+    textos = [chunk.page_content for chunk in chunks]
+    metadatos = [chunk.metadata for chunk in chunks]
+    todos_embeddings = []
+    batch_size = 10
+    for i in range(0, len(textos), batch_size):
+        batch = textos[i:i+batch_size]
+        batch_emb = embeddings.embed_documents(batch)
+        todos_embeddings.extend(batch_emb)
+        print(f"Procesados {min(i+batch_size, len(textos))}/{len(textos)} chunks...")
+    return FAISS.from_embeddings(
+        list(zip(textos, todos_embeddings)),
+        embeddings,
+        metadatas=metadatos
     )
 
+def crear_cadena(vector_store, memoria):
+    llm = ChatGroq(
+        model="llama-3.1-8b-instant",
+        groq_api_key=os.getenv("GROQ_API_KEY"),
+        temperature=0.3
+    )
+    return ConversationalRetrievalChain.from_llm(
+        llm=llm,
+        retriever=vector_store.as_retriever(search_kwargs={"k": 4}),
+        memory=memoria,
+        return_source_documents=True,
+        verbose=False
+    )
+
+def crear_agente(carpeta_docs: str):
+    ruta_faiss = os.path.join(os.path.dirname(__file__), "..", "vector_store")
+    embeddings = crear_embeddings()
     if os.path.exists(ruta_faiss):
         print("Cargando vector store desde disco...")
         vector_store = FAISS.load_local(
@@ -44,120 +57,41 @@ def crear_agente(carpeta_docs: str):
         print("Cargando documentos...")
         documentos = cargar_documentos(carpeta_docs)
         chunks = dividir_documentos(documentos)
-        print(f"Creando embeddings para {len(chunks)} chunks (solo la primera vez)...")
-
-        textos = [chunk.page_content for chunk in chunks]
-        metadatos = [chunk.metadata for chunk in chunks]
-
-        todos_embeddings = []
-        batch_size = 10
-        
-        
-        for i in range(0, len(textos), batch_size):
-            batch = textos[i:i+batch_size]
-            batch_emb = embeddings.embed_documents(batch)
-            todos_embeddings.extend(batch_emb)
-            print(f"Procesados {min(i+batch_size, len(textos))}/{len(textos)} chunks...")
-
-        vector_store = FAISS.from_embeddings(
-            list(zip(textos, todos_embeddings)),
-            embeddings,
-            metadatas=metadatos
-        )
+        vector_store = crear_vector_store(chunks, embeddings)
         vector_store.save_local(ruta_faiss)
         print("Vector store guardado en disco.")
-
-    print("Configurando el agente...")
-    llm = ChatGroq(
-        model="llama-3.1-8b-instant",
-        groq_api_key=os.getenv("GROQ_API_KEY"),
-        temperature=0.3
+    
+    memoria = ConversationBufferWindowMemory(
+        memory_key="chat_history",
+        return_messages=True,
+        output_key="answer",
+        k=5
     )
-
-    prompt = PromptTemplate(
-        template=PROMPT_TEMPLATE,
-        input_variables=["context", "question"]
-    )
-
-    # Reducimos k de 4 a 2 para enviar menos texto y consumir menos tokens por consulta
-    agente = RetrievalQA.from_chain_type(
-        llm=llm,
-        chain_type="stuff",
-        retriever=vector_store.as_retriever(search_kwargs={"k": 4}),
-        chain_type_kwargs={"prompt": prompt},
-        return_source_documents=True
-    )
-
     print("Agente listo.")
-    return agente
+    return crear_cadena(vector_store, memoria)
 
-def hacer_pregunta(agente, pregunta: str) -> str:
-    """Hace una pregunta al agente"""
+def crear_agente_personalizado(carpeta_docs: str):
+    print("Cargando documentos personalizados...")
+    embeddings = crear_embeddings()
+    documentos = cargar_documentos(carpeta_docs)
+    chunks = dividir_documentos(documentos)
+    vector_store = crear_vector_store(chunks, embeddings)
+    memoria = ConversationBufferWindowMemory(
+        memory_key="chat_history",
+        return_messages=True,
+        output_key="answer",
+        k=5
+    )
+    print("Agente personalizado listo.")
+    return crear_cadena(vector_store, memoria)
+
+def hacer_pregunta(agente, pregunta: str) -> dict:
     try:
-        resultado = agente.invoke({"query": pregunta})
-        return resultado["result"]
+        resultado = agente.invoke({"question": pregunta})
+        return {
+            "result": resultado["answer"],
+            "source_documents": resultado.get("source_documents", [])
+        }
     except Exception as e:
         print(f"\n❌ Error: {e}")
         raise e
-
-def crear_agente_personalizado(carpeta_docs: str):
-    """Crea un agente RAG temporal con documentos del usuario"""
-    
-    print("Cargando documentos personalizados...")
-    documentos = cargar_documentos(carpeta_docs)
-    chunks = dividir_documentos(documentos)
-    print(f"Creando embeddings para {len(chunks)} chunks...")
-
-    embeddings = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2"
-    )
-
-    textos = [chunk.page_content for chunk in chunks]
-    metadatos = [chunk.metadata for chunk in chunks]
-
-    todos_embeddings = []
-    batch_size = 10
-
-    for i in range(0, len(textos), batch_size):
-        batch = textos[i:i+batch_size]
-        batch_emb = embeddings.embed_documents(batch)
-        todos_embeddings.extend(batch_emb)
-        print(f"Procesados {min(i+batch_size, len(textos))}/{len(textos)} chunks...")
-
-    vector_store = FAISS.from_embeddings(
-        list(zip(textos, todos_embeddings)),
-        embeddings,
-        metadatas=metadatos
-    )
-
-    print("Configurando agente personalizado...")
-    llm = ChatGroq(
-        model="llama-3.1-8b-instant",
-        groq_api_key=os.getenv("GROQ_API_KEY"),
-        temperature=0.3
-    )
-
-    prompt_personalizado = PromptTemplate(
-        template="""Eres un asistente inteligente.
-Usa únicamente la siguiente información para responder la pregunta.
-Si no encuentras la respuesta en el contexto, di claramente que no tienes esa información.
-
-Contexto:
-{context}
-
-Pregunta: {question}
-
-Respuesta:""",
-        input_variables=["context", "question"]
-    )
-
-    agente = RetrievalQA.from_chain_type(
-        llm=llm,
-        chain_type="stuff",
-        retriever=vector_store.as_retriever(search_kwargs={"k": 4}),
-        chain_type_kwargs={"prompt": prompt_personalizado},
-        return_source_documents=True
-    )
-
-    print("Agente personalizado listo.")
-    return agente

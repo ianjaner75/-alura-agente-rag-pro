@@ -1,4 +1,4 @@
-# main.py - Interfaz web con Streamlit - Modo Dual
+# main.py - Interfaz web con Streamlit - Modo Dual + Chats persistentes
 import streamlit as st
 import sys
 import os
@@ -6,6 +6,7 @@ import tempfile
 
 sys.path.append(os.path.dirname(__file__))
 from rag_agent import crear_agente, crear_agente_personalizado, hacer_pregunta
+from database import crear_chat, obtener_chats, obtener_mensajes, guardar_mensaje, eliminar_chat, renombrar_chat
 
 st.set_page_config(
     page_title="Agente RAG Inteligente",
@@ -13,7 +14,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# CSS personalizado
 st.markdown("""
 <style>
     .main-header {
@@ -45,9 +45,24 @@ st.markdown("""
         font-size: 0.85rem;
         color: #b0bec5;
     }
-    .stChatMessage { border-radius: 12px; }
+    .chat-item {
+        padding: 0.5rem;
+        border-radius: 8px;
+        margin: 0.2rem 0;
+        cursor: pointer;
+    }
 </style>
 """, unsafe_allow_html=True)
+
+# Inicializar estado
+if "agente" not in st.session_state:
+    st.session_state.agente = None
+if "historial" not in st.session_state:
+    st.session_state.historial = []
+if "modo_actual" not in st.session_state:
+    st.session_state.modo_actual = None
+if "chat_id" not in st.session_state:
+    st.session_state.chat_id = None
 
 # Sidebar
 with st.sidebar:
@@ -72,17 +87,9 @@ with st.sidebar:
 
     st.divider()
 
-    # Documentos cargados
     if modo == "🏢 Santos Pegasus Soluciones":
         st.markdown("### 📑 Documentos base")
-        docs = [
-            "Manual de Onboarding",
-            "Guía Backend",
-            "Guía Frontend",
-            "Protocolo de Incidentes",
-            "Arquitectura de Microservicios"
-        ]
-        for doc in docs:
+        for doc in ["Manual de Onboarding", "Guía Backend", "Guía Frontend", "Protocolo de Incidentes", "Arquitectura de Microservicios"]:
             st.markdown(f"✅ {doc}")
 
     st.divider()
@@ -93,11 +100,40 @@ with st.sidebar:
     st.markdown("🦜 **LangChain** — Orquestación RAG")
 
     st.divider()
-    if st.button("🗑️ Limpiar historial", use_container_width=True):
+
+    # Panel de chats guardados
+    st.markdown("### 💬 Chats guardados")
+
+    if st.button("➕ Nuevo chat", use_container_width=True, type="primary"):
+        st.session_state.chat_id = None
         st.session_state.historial = []
+        st.session_state.agente = None
+        st.session_state.modo_actual = None
         st.rerun()
 
-# Header principal
+    chats = obtener_chats()
+    for chat in chats:
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            titulo = chat["titulo"][:25] + "..." if len(chat["titulo"]) > 25 else chat["titulo"]
+            if st.button(f"💬 {titulo}", key=f"chat_{chat['id']}", use_container_width=True):
+                st.session_state.chat_id = chat["id"]
+                mensajes = obtener_mensajes(chat["id"])
+                st.session_state.historial = [
+                    {"rol": m["rol"], "contenido": m["contenido"], "fuentes": m["fuentes"] or []}
+                    for m in mensajes
+                ]
+                st.session_state.agente = None
+                st.rerun()
+        with col2:
+            if st.button("🗑️", key=f"del_{chat['id']}"):
+                eliminar_chat(chat["id"])
+                if st.session_state.chat_id == chat["id"]:
+                    st.session_state.chat_id = None
+                    st.session_state.historial = []
+                st.rerun()
+
+# Header
 if modo == "🏢 Santos Pegasus Soluciones":
     st.markdown("""
     <div class="main-header">
@@ -116,7 +152,7 @@ else:
 # Métricas
 col1, col2, col3 = st.columns(3)
 with col1:
-    preguntas = len([m for m in st.session_state.get("historial", []) if m["rol"] == "user"])
+    preguntas = len([m for m in st.session_state.historial if m["rol"] == "user"])
     st.markdown(f"""<div class="metric-card">
         <div class="value">{preguntas}</div>
         <div class="label">Preguntas realizadas</div>
@@ -128,26 +164,17 @@ with col2:
         <div class="label">Documentos cargados</div>
     </div>""", unsafe_allow_html=True)
 with col3:
-    modelo = "LLaMA 3.1 8B"
+    total_chats = len(chats)
     st.markdown(f"""<div class="metric-card">
-        <div class="value">⚡</div>
-        <div class="label">{modelo} via Groq</div>
+        <div class="value">{total_chats}</div>
+        <div class="label">Chats guardados</div>
     </div>""", unsafe_allow_html=True)
 
 st.divider()
 
-# Inicializar estado
-if "agente" not in st.session_state:
-    st.session_state.agente = None
-if "historial" not in st.session_state:
-    st.session_state.historial = []
-if "modo_actual" not in st.session_state:
-    st.session_state.modo_actual = None
-
 # Cargar agente
 if modo == "🏢 Santos Pegasus Soluciones":
     if st.session_state.modo_actual != "pegasus":
-        st.session_state.historial = []
         st.session_state.modo_actual = "pegasus"
         st.session_state.agente = None
     if st.session_state.agente is None:
@@ -158,7 +185,6 @@ if modo == "🏢 Santos Pegasus Soluciones":
 
 elif modo == "📁 Mis propios documentos":
     if st.session_state.modo_actual != "personalizado":
-        st.session_state.historial = []
         st.session_state.modo_actual = "personalizado"
         st.session_state.agente = None
     if boton_cargar and archivos:
@@ -171,30 +197,36 @@ elif modo == "📁 Mis propios documentos":
             st.session_state.agente = crear_agente_personalizado(tmp_dir)
             st.session_state.historial = []
         st.success(f"✅ {len(archivos)} documento(s) cargado(s). Puedes hacer tus preguntas.")
-    elif st.session_state.agente is None:
+    elif st.session_state.agente is None and not archivos:
         st.info("👈 Sube tus documentos PDF en el panel izquierdo para comenzar.")
 
 # Historial
 for mensaje in st.session_state.historial:
     with st.chat_message(mensaje["rol"]):
         st.write(mensaje["contenido"])
-        if mensaje["rol"] == "assistant" and "fuentes" in mensaje:
-            if mensaje["fuentes"]:
-                with st.expander("📄 Ver fuentes"):
-                    for f in mensaje["fuentes"]:
-                        st.markdown(f'<div class="source-tag">📄 {f}</div>', unsafe_allow_html=True)
+        if mensaje["rol"] == "assistant" and mensaje.get("fuentes"):
+            with st.expander("📄 Ver fuentes"):
+                for f in mensaje["fuentes"]:
+                    st.markdown(f'<div class="source-tag">📄 {f}</div>', unsafe_allow_html=True)
 
 # Input
 if st.session_state.agente is not None:
     pregunta = st.chat_input("Escribe tu pregunta aquí...")
     if pregunta:
+        # Crear chat nuevo si no existe
+        if st.session_state.chat_id is None:
+            titulo = pregunta[:50]
+            modo_str = "pegasus" if modo == "🏢 Santos Pegasus Soluciones" else "personalizado"
+            st.session_state.chat_id = crear_chat(titulo, modo_str)
+
         with st.chat_message("user"):
             st.write(pregunta)
-        st.session_state.historial.append({"rol": "user", "contenido": pregunta})
+        st.session_state.historial.append({"rol": "user", "contenido": pregunta, "fuentes": []})
+        guardar_mensaje(st.session_state.chat_id, "user", pregunta)
 
         with st.chat_message("assistant"):
             with st.spinner("🔍 Buscando en los documentos..."):
-                resultado = st.session_state.agente.invoke({"query": pregunta})
+                resultado = hacer_pregunta(st.session_state.agente, pregunta)
                 respuesta = resultado["result"]
                 source_docs = resultado.get("source_documents", [])
                 fuentes_texto = []
@@ -214,3 +246,5 @@ if st.session_state.agente is not None:
             "contenido": respuesta,
             "fuentes": fuentes_texto
         })
+        guardar_mensaje(st.session_state.chat_id, "assistant", respuesta, fuentes_texto)
+        st.rerun()
