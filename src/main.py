@@ -206,10 +206,12 @@ if modo == "🏢 Santos Pegasus Soluciones":
             st.session_state.agente = crear_agente(carpeta_docs)
         st.success("✅ Agente listo. Puedes hacer tus preguntas.")
 
+#  CÓDIGO MODIFICADO:
 elif modo == "📁 Mis propios documentos":
     if st.session_state.modo_actual != "personalizado":
         st.session_state.modo_actual = "personalizado"
         st.session_state.agente = None
+        
     if boton_cargar and archivos:
         with st.spinner(f"⏳ Procesando {len(archivos)} documento(s)..."):
             tmp_dir = tempfile.mkdtemp()
@@ -225,8 +227,26 @@ elif modo == "📁 Mis propios documentos":
             st.session_state.historial = []
             st.session_state.archivos_info = archivos_info
         st.success(f"✅ {len(archivos)} documento(s) cargado(s). Puedes hacer tus preguntas.")
+        
     elif st.session_state.agente is None and not archivos:
-        st.info("👈 Sube tus documentos PDF en el panel izquierdo para comenzar.")
+        # Si no hay agente en memoria pero hay un chat activo, reconstruimos el índice FAISS al vuelo
+        if st.session_state.get("chat_id") is not None:
+            with st.spinner("⏳ Reconstruyendo base de datos vectorial desde Supabase..."):
+                archivos_guardados = listar_pdfs_chat(st.session_state.chat_id)
+                if archivos_guardados:
+                    import requests
+                    tmp_dir = tempfile.mkdtemp()
+                    for archivo_info in archivos_guardados:
+                        response = requests.get(archivo_info["url"])
+                        ruta = os.path.join(tmp_dir, archivo_info["nombre"])
+                        with open(ruta, "wb") as f:
+                            f.write(response.content)
+                    st.session_state.agente = crear_agente_personalizado(tmp_dir)
+                    st.rerun()
+                else:
+                    st.info("👈 Sube tus documentos PDF en el panel izquierdo para comenzar.")
+        else:
+            st.info("👈 Sube tus documentos PDF en el panel izquierdo para comenzar.")
 
 # Historial
 for mensaje in st.session_state.historial:
@@ -254,9 +274,11 @@ if st.session_state.agente is not None:
         st.session_state.historial.append({"rol": "user", "contenido": pregunta, "fuentes": []})
         guardar_mensaje(st.session_state.chat_id, "user", pregunta)
 
+        #  CÓDIGO MODIFICADO:
         with st.chat_message("assistant"):
             with st.spinner("🔍 Buscando en los documentos..."):
-                resultado = hacer_pregunta(st.session_state.agente, pregunta)
+                # Le enviamos el historial completo para que LLaMA 3.1 tenga contexto de la conversación
+                resultado = hacer_pregunta(st.session_state.agente, pregunta, st.session_state.historial)
                 respuesta = resultado["result"]
                 source_docs = resultado.get("source_documents", [])
                 fuentes_texto = []

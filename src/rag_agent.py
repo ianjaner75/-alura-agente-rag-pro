@@ -85,9 +85,18 @@ def crear_agente_personalizado(carpeta_docs: str):
     print("Agente personalizado listo.")
     return crear_cadena(vector_store, memoria)
 
-def hacer_pregunta(agente, pregunta: str) -> dict:
+def hacer_pregunta(agente, pregunta: str, historial: list = None) -> dict:
     try:
-        resultado = agente.invoke({"question": pregunta})
+        # Si no se envía un historial, inicializamos una lista vacía
+        if historial is None:
+            historial = []
+            
+        # Le enviamos tanto la pregunta actual como el historial de chat a la cadena
+        resultado = agente.invoke({
+            "question": pregunta,
+            "chat_history": historial
+        })
+        
         return {
             "result": resultado["answer"],
             "source_documents": resultado.get("source_documents", [])
