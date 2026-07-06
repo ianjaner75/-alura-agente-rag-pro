@@ -67,10 +67,12 @@ if "chat_id" not in st.session_state:
 # Sidebar
 with st.sidebar:
     st.markdown("## ⚙️ Configuración")
+    modo_default = st.session_state.get("modo_cargado", "🏢 Santos Pegasus Soluciones")
+    modo_index = 0 if modo_default == "🏢 Santos Pegasus Soluciones" else 1
     modo = st.radio(
         "Selecciona el modo:",
         ["🏢 Santos Pegasus Soluciones", "📁 Mis propios documentos"],
-        index=0
+        index=modo_index
     )
 
     if modo == "📁 Mis propios documentos":
@@ -123,7 +125,6 @@ with st.sidebar:
                     {"rol": m["rol"], "contenido": m["contenido"], "fuentes": m["fuentes"] or []}
                     for m in mensajes
                 ]
-                # Recuperar archivos si es chat personalizado
                 if chat["modo"] == "personalizado":
                     archivos_guardados = listar_pdfs_chat(chat["id"])
                     if archivos_guardados:
@@ -137,9 +138,15 @@ with st.sidebar:
                                     f.write(response.content)
                             st.session_state.agente = crear_agente_personalizado(tmp_dir)
                             st.session_state.modo_actual = "personalizado"
+                            st.session_state.modo_cargado = "📁 Mis propios documentos"
+                    else:
+                        st.session_state.agente = None
+                        st.session_state.modo_actual = "personalizado"
+                        st.session_state.modo_cargado = "📁 Mis propios documentos"
                 else:
                     st.session_state.agente = None
                     st.session_state.modo_actual = None
+                    st.session_state.modo_cargado = "🏢 Santos Pegasus Soluciones"
                 st.rerun()
         with col2:
             if st.button("🗑️", key=f"del_{chat['id']}"):
