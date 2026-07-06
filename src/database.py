@@ -49,3 +49,34 @@ def renombrar_chat(chat_id: str, nuevo_titulo: str):
     client.table("chats").update({
         "titulo": nuevo_titulo
     }).eq("id", chat_id).execute()
+    
+import uuid
+
+def subir_pdf_supabase(nombre_archivo: str, contenido_bytes: bytes) -> str:
+    """Sube un PDF a Supabase Storage y retorna la URL pública"""
+    import re
+    client = get_client()
+    # Limpiar nombre: quitar tildes, espacios y caracteres especiales
+    nombre_limpio = nombre_archivo.encode('ascii', 'ignore').decode('ascii')
+    nombre_limpio = re.sub(r'[^a-zA-Z0-9._-]', '_', nombre_limpio)
+    nombre_unico = f"{uuid.uuid4()}_{nombre_limpio}"
+    client.storage.from_("documentos").upload(
+        path=nombre_unico,
+        file=contenido_bytes,
+        file_options={"content-type": "application/pdf"}
+    )
+    url = client.storage.from_("documentos").get_public_url(nombre_unico)
+    return url, nombre_unico
+
+def listar_pdfs_chat(chat_id: str) -> list:
+    """Lista los PDFs asociados a un chat"""
+    client = get_client()
+    result = client.table("chats").select("archivos").eq("id", chat_id).execute()
+    if result.data and result.data[0].get("archivos"):
+        return result.data[0]["archivos"]
+    return []
+
+def asociar_archivos_chat(chat_id: str, archivos: list):
+    """Guarda la lista de archivos asociados al chat"""
+    client = get_client()
+    client.table("chats").update({"archivos": archivos}).eq("id", chat_id).execute()

@@ -6,7 +6,7 @@ import tempfile
 
 sys.path.append(os.path.dirname(__file__))
 from rag_agent import crear_agente, crear_agente_personalizado, hacer_pregunta
-from database import crear_chat, obtener_chats, obtener_mensajes, guardar_mensaje, eliminar_chat, renombrar_chat
+from database import crear_chat, obtener_chats, obtener_mensajes, guardar_mensaje, eliminar_chat, renombrar_chat, subir_pdf_supabase, listar_pdfs_chat, asociar_archivos_chat
 
 st.set_page_config(
     page_title="Agente RAG Inteligente",
@@ -123,7 +123,23 @@ with st.sidebar:
                     {"rol": m["rol"], "contenido": m["contenido"], "fuentes": m["fuentes"] or []}
                     for m in mensajes
                 ]
-                st.session_state.agente = None
+                # Recuperar archivos si es chat personalizado
+                if chat["modo"] == "personalizado":
+                    archivos_guardados = listar_pdfs_chat(chat["id"])
+                    if archivos_guardados:
+                        with st.spinner("⏳ Recuperando documentos del chat..."):
+                            import requests
+                            tmp_dir = tempfile.mkdtemp()
+                            for archivo_info in archivos_guardados:
+                                response = requests.get(archivo_info["url"])
+                                ruta = os.path.join(tmp_dir, archivo_info["nombre"])
+                                with open(ruta, "wb") as f:
+                                    f.write(response.content)
+                            st.session_state.agente = crear_agente_personalizado(tmp_dir)
+                            st.session_state.modo_actual = "personalizado"
+                else:
+                    st.session_state.agente = None
+                    st.session_state.modo_actual = None
                 st.rerun()
         with col2:
             if st.button("🗑️", key=f"del_{chat['id']}"):
@@ -190,12 +206,17 @@ elif modo == "📁 Mis propios documentos":
     if boton_cargar and archivos:
         with st.spinner(f"⏳ Procesando {len(archivos)} documento(s)..."):
             tmp_dir = tempfile.mkdtemp()
+            archivos_info = []
             for archivo in archivos:
+                contenido = archivo.getbuffer()
+                url, nombre_unico = subir_pdf_supabase(archivo.name, bytes(contenido))
                 ruta = os.path.join(tmp_dir, archivo.name)
                 with open(ruta, "wb") as f:
-                    f.write(archivo.getbuffer())
+                    f.write(contenido)
+                archivos_info.append({"nombre": archivo.name, "url": url, "path": nombre_unico})
             st.session_state.agente = crear_agente_personalizado(tmp_dir)
             st.session_state.historial = []
+            st.session_state.archivos_info = archivos_info
         st.success(f"✅ {len(archivos)} documento(s) cargado(s). Puedes hacer tus preguntas.")
     elif st.session_state.agente is None and not archivos:
         st.info("👈 Sube tus documentos PDF en el panel izquierdo para comenzar.")
@@ -218,6 +239,8 @@ if st.session_state.agente is not None:
             titulo = pregunta[:50]
             modo_str = "pegasus" if modo == "🏢 Santos Pegasus Soluciones" else "personalizado"
             st.session_state.chat_id = crear_chat(titulo, modo_str)
+            if modo_str == "personalizado" and "archivos_info" in st.session_state:
+                asociar_archivos_chat(st.session_state.chat_id, st.session_state.archivos_info)
 
         with st.chat_message("user"):
             st.write(pregunta)
