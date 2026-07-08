@@ -1,4 +1,3 @@
-
 <div align="center">
 
 
@@ -65,11 +64,19 @@ El agente opera en **dos modos**:
 
 
 
-> 🌐 **Aplicación en producción:** `[URL pública en OCI]`
+> 🌐 **Aplicación en producción:** (http://136.64.155.76:8501)
 
 
 
-![Demo de la interfaz](url-captura-pantalla-aqui)
+![Modo Pegasus](assets/demo.png)
+![Chat con fuentes](assets/chat.png)
+![Modo documentos](assets/documentos.png)
+
+
+
+## 🎬 Demo en Video
+
+[![Ver demo](https://img.shields.io/badge/▶_Ver_Demo-OneDrive-0078D4?style=for-the-badge&logo=microsoftonedrive)](TU_LINK_DE_ONEDRIVE_AQUI)
 
 
 
@@ -167,7 +174,7 @@ El sistema implementa la arquitectura **RAG (Retrieval-Augmented Generation)** e
 
 | **Lectura de docs** | PyPDF + Pandas | Procesamiento de PDFs y CSVs |
 
-| **Deploy** | Oracle Cloud Infrastructure (OCI) | VM Always Free |
+| **Deploy** | Google Cloud Platform (GCP) | VM Compute Engine |
 
 
 
@@ -489,7 +496,7 @@ Sube cualquier PDF o CSV y pregunta:
 
 - [x] Interfaz moderna con tema oscuro personalizado
 
-- [x] Deploy en Oracle Cloud Infrastructure (OCI)
+- [x] Deploy en Google Cloud Platform (GCP)
 
 - [ ] Soporte de múltiples usuarios con autenticación
 
