@@ -22,7 +22,7 @@
 
 [![HuggingFace](https://img.shields.io/badge/HuggingFace-Embeddings-FFD21E?style=for-the-badge&logo=huggingface&logoColor=black)](https://huggingface.co)
 
-[![Oracle](https://img.shields.io/badge/Oracle_Cloud-OCI-F80000?style=for-the-badge&logo=oracle&logoColor=white)](https://cloud.oracle.com)
+[![GCP](https://img.shields.io/badge/Google_Cloud-GCP-4285F4?style=for-the-badge&logo=googlecloud&logoColor=white)](https://cloud.google.com)
 
 
 
@@ -64,7 +64,7 @@ El agente opera en **dos modos**:
 
 
 
-> 🌐 **Aplicación en producción:** (http://136.64.155.76:8501)
+> 🌐 **Aplicación en producción:** http://136.64.155.76:8501
 
 
 
